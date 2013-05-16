@@ -28,69 +28,43 @@ namespace base64 {
 
     class Coder
     {
+        friend Coder Encoder();
+        friend Coder Decoder();
+        friend Coder * newEncoder();
+        friend Coder * newDecoder();
+
     public:
-        virtual ~Coder();
-        virtual Coder & toContraryCoder() = 0;
-        virtual string code(string const &)const = 0;
+        void toContraryCoder();
+        string code(string const &)const;
 
-        virtual char the63rdChar()const = 0;
-        virtual void the63rdChar(char value) = 0;
-        virtual char the64thChar()const = 0;
-        virtual void the64thChar(char value) = 0;
+        char the63rdChar()const;
+        void the63rdChar(char value);
+        char the64thChar()const;
+        void the64thChar(char value);
+        string pad()const;
+        void   pad(string const & value);
+        int  lineLengthMax()const;
+        void lineLengthMax(int value);
+        bool onlyDecodeKnownChars()const;
+        void onlyDecodeKnownChars(bool value);
 
-        unsigned lineLengthMax()const;
-        void lineLengthMax(unsigned value);
-        string padding()const;
-        void padding(string const & value);
-
-    protected:
-        static char const INVALID_NUMBER = -1;
-        static string const FIRST_62_CHARS;
-
+    private:
         string m_table;
-        unsigned m_nLineMax;
+        int m_iLineMax;
         char m_szPad[4];
 
-        explicit Coder(unsigned tableSize, unsigned lineMax = 76, string const & pad = "=");
-    };
+        static string const FIRST_62_CHARS;
+        static unsigned const ENCODE_TABLE_SIZE = 64;
+        static unsigned const DECODE_TABLE_SIZE = 256;
+        static char const DECODE_UNKNOWN = -1;
 
-
-    class Encoder
-        : public Coder
-    {
-    public:
-        explicit Encoder(char ch64th = '/', char ch63rd = '+');
-        Encoder(Coder const & rhs);
-
-        virtual Coder & toContraryCoder();
-        virtual string code(string const & buffer)const;
-
-        virtual char the63rdChar()const;
-        virtual void the63rdChar(char value);
-        virtual char the64thChar()const;
-        virtual void the64thChar(char value);
-
-    private:
+        Coder(unsigned tableSize, char ch63rd = '+', char ch64th = '/',
+              string const & pad = "=", int lineMax = 64, bool only64Chars = true);
+        void initEncodeTable(char ch63rd, char ch64th);
+        void initDecodeTable(char ch63rd, char ch64th);
+        string encodeBuffer(string const & buffer)const;
         string encode3Bytes(char const * bytes, size_t nByte)const;
-    };
-
-
-    class Decoder
-        : public Coder
-    {
-    public:
-        explicit Decoder(char ch64th = '/', char ch63rd = '+');
-        Decoder(Coder const & rhs);
-
-        virtual Coder & toContraryCoder();
-        virtual string code(string const & strEncoded)const;
-
-        virtual char the63rdChar()const;
-        virtual void the63rdChar(char value);
-        virtual char the64thChar()const;
-        virtual void the64thChar(char value);
-
-    private:
+        string decodeString(string const & strEncoded)const;
         string decode4Chars(istringstream & iss)const;
     };
 
@@ -98,21 +72,51 @@ namespace base64 {
     //----------Implementation------------
 
     inline
-    unsigned Coder::lineLengthMax()const
+    Coder Encoder()
     {
-        return m_nLineMax;
+        return Coder::ENCODE_TABLE_SIZE;
     }
 
     inline
-    void Coder::lineLengthMax(unsigned value)
+    Coder Decoder()
     {
-        m_nLineMax = value;
+        return Coder::DECODE_TABLE_SIZE;
     }
 
     inline
-    string Coder::padding()const
+    Coder * newEncoder()
+    {
+        return new Coder(Coder::ENCODE_TABLE_SIZE);
+    }
+
+    inline
+    Coder * newDecoder()
+    {
+        return new Coder(Coder::DECODE_TABLE_SIZE);
+    }
+
+    inline
+    string Coder::pad()const
     {
         return m_szPad;
+    }
+
+    inline
+    int Coder::lineLengthMax()const
+    {
+        return onlyDecodeKnownChars() ? m_iLineMax : ~m_iLineMax;
+    }
+
+    inline
+    bool Coder::onlyDecodeKnownChars()const
+    {
+        return m_iLineMax >= 0;
+    }
+
+    inline
+    void Coder::onlyDecodeKnownChars(bool value)
+    {
+        value != onlyDecodeKnownChars() && (m_iLineMax = ~m_iLineMax);
     }
 }
 

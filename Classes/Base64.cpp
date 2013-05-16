@@ -8,7 +8,6 @@
 
 #include "Base64.h"
 
-#include <cassert>
 #include <stdexcept>
 
 
@@ -77,81 +76,159 @@ namespace {
 
 
 namespace base64 {
+    inline
+    std::runtime_error BadCoder()
+    {
+        return std::runtime_error("base64 - Corrupted coder.");
+    }
+
+    inline
+    std::runtime_error BadBase64String()
+    {
+        return std::runtime_error("base64 - Decoding a corrupted string.");
+    }
+
+
     string const Coder::FIRST_62_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-    void Coder::padding(string const & value)
+    void Coder::toContraryCoder()
+    {
+        switch(m_table.size()) {
+            case ENCODE_TABLE_SIZE:
+                return initDecodeTable(the63rdChar(), the64thChar());
+            case DECODE_TABLE_SIZE:
+                return initEncodeTable(the63rdChar(), the64thChar());
+            default:
+                throw BadCoder();
+        }
+    }
+
+    string Coder::code(const string & str)const
+    {
+        switch(m_table.size()) {
+            case ENCODE_TABLE_SIZE:
+                return encodeBuffer(str);
+            case DECODE_TABLE_SIZE:
+                return decodeString(str);
+            default:
+                throw BadCoder();
+        }
+    }
+
+    char Coder::the63rdChar()const
+    {
+        switch(m_table.size()) {
+            case ENCODE_TABLE_SIZE:
+                return m_table[62];
+            case DECODE_TABLE_SIZE:
+                return static_cast<char>(m_table.find(62));
+            default:
+                throw BadCoder();
+        }
+    }
+
+    void Coder::the63rdChar(char value)
+    {
+        switch(m_table.size()) {
+            case ENCODE_TABLE_SIZE:
+                m_table[62] = value;
+                return;
+            case DECODE_TABLE_SIZE:
+                m_table[m_table.find(62)] = DECODE_UNKNOWN;
+                m_table[value] = 62;
+                return;
+            default:
+                throw BadCoder();
+        }
+    }
+
+    char Coder::the64thChar()const
+    {
+        switch(m_table.size()) {
+            case ENCODE_TABLE_SIZE:
+                return m_table[63];
+            case DECODE_TABLE_SIZE:
+                return static_cast<char>(m_table.find(63));
+            default:
+                throw BadCoder();
+        }
+    }
+
+    void Coder::the64thChar(char value)
+    {
+        switch(m_table.size()) {
+            case ENCODE_TABLE_SIZE:
+                m_table[63] = value;
+                return;
+            case DECODE_TABLE_SIZE:
+                m_table[m_table.find(63)] = DECODE_UNKNOWN;
+                m_table[value] = 63;
+                return;
+            default:
+                throw BadCoder();
+        }
+    }
+
+    void Coder::pad(string const & value)
     {
         auto n = value.length();
         if(n > 3) {
-            throw std::length_error("base64 - Padding string is longer than 3.");
+            throw std::length_error("base64 - Length of pad exceed 3.");
         }
         value.copy(m_szPad, n, 0);
         m_szPad[n] = '\0';
     }
 
-    Coder::Coder(unsigned tableSize, unsigned lineMax, string const & pad)
-        : m_table(tableSize, INVALID_NUMBER)
-        , m_nLineMax(lineMax)
+    void Coder::lineLengthMax(int value)
     {
-        padding(pad);
+        if(value < 0) {
+            throw std::invalid_argument("base64 - Max length of line is negative.");
+        }
+        m_iLineMax = onlyDecodeKnownChars() ? value : ~value;
     }
 
-    Coder::~Coder()
+    Coder::Coder(unsigned tableSize, char ch63rd, char ch64th,
+                 string const & pad, int lineMax, bool only64Chars)
+        : m_iLineMax(only64Chars ? lineMax : ~lineMax)
     {
+        this->pad(pad);
+        switch(tableSize) {
+            case ENCODE_TABLE_SIZE:
+                return initEncodeTable(ch63rd, ch64th);
+            case DECODE_TABLE_SIZE:
+                return initDecodeTable(ch63rd, ch64th);
+            default:
+                throw std::invalid_argument("base64 - Invalid table size.");
+        }
     }
 
-
-    Encoder::Encoder(char ch64th, char ch63rd)
-        : Coder(64)
+    void Coder::initEncodeTable(char ch63rd, char ch64th)
     {
+        if(m_table.size() == ENCODE_TABLE_SIZE) {
+            return;
+        }
+        m_table.reserve(ENCODE_TABLE_SIZE);
         m_table = FIRST_62_CHARS;
         m_table.push_back(ch63rd);
         m_table.push_back(ch64th);
     }
 
-    Encoder::Encoder(Coder const & rhs)
-        : Coder(64, rhs.lineLengthMax(), rhs.padding())
+    void Coder::initDecodeTable(char ch63rd, char ch64th)
     {
-        m_table = FIRST_62_CHARS;
-        m_table.push_back(rhs.the63rdChar());
-        m_table.push_back(rhs.the64thChar());
+        if(m_table.size() == DECODE_TABLE_SIZE) {
+            return;
+        }
+        string table(DECODE_TABLE_SIZE, DECODE_UNKNOWN);
+        char i = 0;
+        for(auto ch : FIRST_62_CHARS) {
+            table[ch] = i++;
+        }
+        table[ch63rd] = i++;
+        table[ch64th] = i;
+        m_table.swap(table);
     }
 
-    Coder & Encoder::toContraryCoder()
-    {
-        auto p = dynamic_cast<void*>(this);
-        auto pad = padding();
-        auto lineMax = lineLengthMax();
-        auto ch63rd = the63rdChar();
-        auto ch64th = the64thChar();
-        this->~Encoder();
-        auto rtn = new(p) Decoder(ch64th, ch63rd);
-        rtn->lineLengthMax(lineMax);
-        rtn->padding(pad);
-        return *rtn;
-    }
-
-    char Encoder::the63rdChar()const
-    {
-        return m_table[62];
-    }
-
-    void Encoder::the63rdChar(char value)
-    {
-        m_table[62] = value;
-    }
-
-    char Encoder::the64thChar()const
-    {
-        return m_table[63];
-    }
-
-    void Encoder::the64thChar(char value)
-    {
-        m_table[63] = value;
-    }
-
-    string Encoder::code(string const & buffer)const
+    string Coder::encodeBuffer(string const & buffer)const
     {
         auto bytes = buffer.data();
         auto nByte = buffer.size();
@@ -161,14 +238,15 @@ namespace base64 {
             //Add pad size:
             auto nPad = m_szPad[0] ? 4-endingSize : 0;
             (nPad)&&
-                (endingSize += nPad * padding().length());
+                (endingSize += nPad * pad().length());
         }
 
         auto resultSize = nByte/3*4 + endingSize;
-        if(m_nLineMax) {
+        size_t const k_lineMax = lineLengthMax();
+        if(k_lineMax) {
             //Add CR_LF size:
-            auto nCR_LF = resultSize / m_nLineMax;
-            (resultSize % m_nLineMax)||
+            auto nCR_LF = resultSize / k_lineMax;
+            (resultSize % k_lineMax)||
                 --nCR_LF;
             resultSize += nCR_LF * sizeof(CR_LF);
         }
@@ -190,16 +268,18 @@ namespace base64 {
                 nByte = 0;
             }
             //New line:
-            if(m_nLineMax && lineLength > m_nLineMax) {
-                lineLength -= m_nLineMax;
+            if(k_lineMax && lineLength > k_lineMax) {
+                lineLength -= k_lineMax;
                 rtn.insert(rtn.length()-lineLength, CR_LF, sizeof(CR_LF));
             }
         }
-        assert(rtn.size() == resultSize);
+        if(rtn.size() != resultSize) {
+            throw std::logic_error("base64 - Wrong encoder algorithm.");
+        }
         return rtn;
     }
 
-    string Encoder::encode3Bytes(char const * bytes, size_t nByte)const
+    string Coder::encode3Bytes(char const * bytes, size_t nByte)const
     {
         UHigh3Bytes tribyte;
         tribyte.init(bytes[0], nByte>1?bytes[1]:0, nByte>2?bytes[2]:0);
@@ -218,66 +298,7 @@ namespace base64 {
         return rtn;
     }
 
-
-    Decoder::Decoder(char ch64th, char ch63rd)
-        : Coder(256)
-    {
-        char i = 0;
-        for(auto ch : FIRST_62_CHARS) {
-            m_table[ch] = i++;
-        }
-        m_table[ch63rd] = i++;
-        m_table[ch64th] = i;
-    }
-
-    Decoder::Decoder(Coder const & rhs)
-        : Coder(256, rhs.lineLengthMax(), rhs.padding())
-    {
-        char i = 0;
-        for(auto ch : FIRST_62_CHARS) {
-            m_table[ch] = i++;
-        }
-        m_table[rhs.the63rdChar()] = i++;
-        m_table[rhs.the64thChar()] = i;
-    }
-
-    Coder & Decoder::toContraryCoder()
-    {
-        auto p = dynamic_cast<void*>(this);
-        auto pad = padding();
-        auto lineMax = lineLengthMax();
-        auto ch63rd = the63rdChar();
-        auto ch64th = the64thChar();
-        this->~Decoder();
-        auto rtn = new(p) Encoder(ch64th, ch63rd);
-        rtn->lineLengthMax(lineMax);
-        rtn->padding(pad);
-        return *rtn;
-    }
-
-    char Decoder::the63rdChar()const
-    {
-        return static_cast<char>(m_table.find(62));
-    }
-
-    void Decoder::the63rdChar(char value)
-    {
-        m_table[m_table.find(62)] = INVALID_NUMBER;
-        m_table[value] = 62;
-    }
-
-    char Decoder::the64thChar()const
-    {
-        return static_cast<char>(m_table.find(63));
-    }
-
-    void Decoder::the64thChar(char value)
-    {
-        m_table[m_table.find(63)] = INVALID_NUMBER;
-        m_table[value] = 63;
-    }
-
-    string Decoder::code(string const & strEncoded)const
+    string Coder::decodeString(string const & strEncoded)const
     {
         string rtn;
         rtn.reserve(strEncoded.size() * 3 / 4);
@@ -287,7 +308,7 @@ namespace base64 {
         return rtn;
     }
 
-    string Decoder::decode4Chars(istringstream & iss)const
+    string Coder::decode4Chars(istringstream & iss)const
     {
         char ch, nCh = 0;
         UHigh3Bytes tribyte;
@@ -296,26 +317,34 @@ namespace base64 {
             //Get char:
             iss>>ch;
             if(!iss.good()) {
-                ch = '\0';
+                tribyte.all <<= 6;
+                continue;
             }
-            else if(ch == m_szPad[0]) {
+            if(ch == m_szPad[0]) {
                 for( int j = 1; m_szPad[j]; ++j ) {
                     iss>>ch;
                 }
-                ch = '\0';
+                tribyte.all <<= 6;
+                continue;
             }
             //Decode char:
-            tribyte.all <<= 6;
             ch = m_table[ch];
-            if(ch != INVALID_NUMBER) {
+            if(ch != DECODE_UNKNOWN) {
+                tribyte.all <<= 6;
                 tribyte.all |= ch;
                 ++nCh;
+            }
+            else if(onlyDecodeKnownChars()) {
+                throw BadBase64String();
+            }
+            else {
+                --i;
             }
         }
         tribyte.all <<= 8;
 
         if(nCh == 1) {
-            throw std::runtime_error("base64 - Decoding a corrupted string.");
+            throw BadBase64String();
         }
         return (nCh)?
             tribyte.toString().substr(0, --nCh):
