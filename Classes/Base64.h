@@ -12,14 +12,12 @@
 
 #include <cstddef>
 #include <string>
-#include <sstream>
 
 
 
 namespace base64 {
     using std::size_t;
     using std::string;
-    using std::istringstream;
 
 
     typedef unsigned UINT32;
@@ -35,7 +33,7 @@ namespace base64 {
 
     public:
         void toContraryCoder();
-        string code(string const &)const;
+        string code(void const * p, size_t nByte)const;
 
         char the63rdChar()const;
         void the63rdChar(char value);
@@ -61,11 +59,11 @@ namespace base64 {
         Coder(unsigned tableSize, char ch63rd = '+', char ch64th = '/',
               string const & pad = "=", int lineMax = 64, bool only64Chars = true);
         void initEncodeTable(char ch63rd, char ch64th);
-        void initDecodeTable(char ch63rd, char ch64th);
-        string encodeBuffer(string const & buffer)const;
+        void initDecodeTable(unsigned char ch63rd, unsigned char ch64th);
+        string encodeBuffer(char const * bytes, size_t nByte)const;
         string encode3Bytes(char const * bytes, size_t nByte)const;
-        string decodeString(string const & strEncoded)const;
-        string decode4Chars(istringstream & iss)const;
+        string decodeString(unsigned char const * bytes, size_t nByte)const;
+        string decode4Chars(unsigned char const* & bytes, size_t & nByte)const;
     };
 
 

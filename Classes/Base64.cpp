@@ -8,6 +8,7 @@
 
 #include "Base64.h"
 
+#include <cctype>
 #include <stdexcept>
 
 
@@ -31,15 +32,17 @@ namespace {
 
     union UHigh3Bytes
     {
+        typedef string::value_type BYTE;
+
         UINT32 all;
-        unsigned char bytes[4];
+        BYTE bytes[4];
 
         UHigh3Bytes()
             : all(0)
         {
         }
 
-        void init(unsigned char high, unsigned char middle, unsigned char low)
+        void init(BYTE high, BYTE middle, BYTE low)
         {
             if(k_isBigEndian) {
                 bytes[0] = high;
@@ -103,13 +106,13 @@ namespace base64 {
         }
     }
 
-    string Coder::code(const string & str)const
+    string Coder::code(void const * p, size_t nByte)const
     {
         switch(m_table.size()) {
             case ENCODE_TABLE_SIZE:
-                return encodeBuffer(str);
+                return encodeBuffer(static_cast<char const*>(p), nByte);
             case DECODE_TABLE_SIZE:
-                return decodeString(str);
+                return decodeString(static_cast<unsigned char const*>(p), nByte);
             default:
                 throw BadCoder();
         }
@@ -135,7 +138,7 @@ namespace base64 {
                 return;
             case DECODE_TABLE_SIZE:
                 m_table[m_table.find(62)] = DECODE_UNKNOWN;
-                m_table[value] = 62;
+                m_table[static_cast<unsigned char>(value)] = 62;
                 return;
             default:
                 throw BadCoder();
@@ -162,7 +165,7 @@ namespace base64 {
                 return;
             case DECODE_TABLE_SIZE:
                 m_table[m_table.find(63)] = DECODE_UNKNOWN;
-                m_table[value] = 63;
+                m_table[static_cast<unsigned char>(value)] = 63;
                 return;
             default:
                 throw BadCoder();
@@ -173,7 +176,7 @@ namespace base64 {
     {
         auto n = value.length();
         if(n > 3) {
-            throw std::length_error("base64 - Length of pad exceed 3.");
+            throw std::length_error("base64 - Length of pad exceeds 3.");
         }
         value.copy(m_szPad, n, 0);
         m_szPad[n] = '\0';
@@ -181,8 +184,8 @@ namespace base64 {
 
     void Coder::lineLengthMax(int value)
     {
-        if(value < 0) {
-            throw std::invalid_argument("base64 - Max length of line is negative.");
+        if(value < 0 || 76 < value) {
+            throw std::out_of_range("base64 - Max length of line is out of [0,76].");
         }
         m_iLineMax = onlyDecodeKnownChars() ? value : ~value;
     }
@@ -213,7 +216,7 @@ namespace base64 {
         m_table.push_back(ch64th);
     }
 
-    void Coder::initDecodeTable(char ch63rd, char ch64th)
+    void Coder::initDecodeTable(unsigned char ch63rd, unsigned char ch64th)
     {
         if(m_table.size() == DECODE_TABLE_SIZE) {
             return;
@@ -228,10 +231,8 @@ namespace base64 {
         m_table.swap(table);
     }
 
-    string Coder::encodeBuffer(string const & buffer)const
+    string Coder::encodeBuffer(char const * bytes, size_t nByte)const
     {
-        auto bytes = buffer.data();
-        auto nByte = buffer.size();
         auto endingSize = nByte % 3;
         if(endingSize) {
             ++endingSize;//encoded ending size
@@ -298,31 +299,39 @@ namespace base64 {
         return rtn;
     }
 
-    string Coder::decodeString(string const & strEncoded)const
+    string Coder::decodeString(unsigned char const * bytes, size_t nByte)const
     {
         string rtn;
-        rtn.reserve(strEncoded.size() * 3 / 4);
+        rtn.reserve(nByte * 3 / 4);
 
-        for( istringstream iss(strEncoded); iss.good(); rtn += decode4Chars(iss) );
+        for( ; nByte; rtn += decode4Chars(bytes, nByte) );
 
         return rtn;
     }
 
-    string Coder::decode4Chars(istringstream & iss)const
+    string Coder::decode4Chars(unsigned char const* & bytes, size_t & nByte)const
     {
         char ch, nCh = 0;
         UHigh3Bytes tribyte;
 
         for( int i = 0; i != 4; ++i ) {
-            //Get char:
-            iss>>ch;
-            if(!iss.good()) {
+            //Skip white space:
+            for( ; std::isspace(*bytes); ++bytes ) {
+                nByte && --nByte;
+            }
+            if(!nByte) {
                 tribyte.all <<= 6;
                 continue;
             }
+            //Get char:
+            ch = *bytes++;
+            --nByte;
             if(ch == m_szPad[0]) {
                 for( int j = 1; m_szPad[j]; ++j ) {
-                    iss>>ch;
+                    if(*bytes == m_szPad[j]) {
+                        ++bytes;
+                        nByte && --nByte;
+                    }
                 }
                 tribyte.all <<= 6;
                 continue;
@@ -342,7 +351,6 @@ namespace base64 {
             }
         }
         tribyte.all <<= 8;
-
         if(nCh == 1) {
             throw BadBase64String();
         }
