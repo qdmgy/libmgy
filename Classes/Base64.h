@@ -2,7 +2,7 @@
 //  Base64.h
 //  libmgy
 //
-//  Created by 旭游 on 13-5-14.
+//  Created by 牟光远 on 2013-5-14.
 //  Copyright (c) 2013年 牟光远. All rights reserved.
 //
 

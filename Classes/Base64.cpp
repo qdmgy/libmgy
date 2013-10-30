@@ -2,11 +2,12 @@
 //  Base64.cpp
 //  libmgy
 //
-//  Created by 旭游 on 13-5-14.
+//  Created by 牟光远 on 2013-5-14.
 //  Copyright (c) 2013年 牟光远. All rights reserved.
 //
 
 #include "Base64.h"
+#include "util.h"
 
 #include <cctype>
 #include <stdexcept>
@@ -18,16 +19,8 @@ namespace {
     using base64::UINT32;
 
 
-    bool IsBigEndian()
-    {
-        UINT32 n = 0x12345678;
-        auto p = reinterpret_cast<unsigned char*>(&n);
-        return *p == 0x12;
-    }
-
-
     char const CR_LF[] = {'\r', '\n'};
-    bool const k_isBigEndian = IsBigEndian();
+    bool const k_isBigEndian = util::IsBigEndian();
 
 
     union UHigh3Bytes
@@ -110,9 +103,9 @@ namespace base64 {
     {
         switch(m_table.size()) {
             case ENCODE_TABLE_SIZE:
-                return encodeBuffer(static_cast<char const*>(p), nByte);
+                return encodeBuffer((char const*)p, nByte);
             case DECODE_TABLE_SIZE:
-                return decodeString(static_cast<unsigned char const*>(p), nByte);
+                return decodeString((unsigned char const*)p, nByte);
             default:
                 throw BadCoder();
         }
@@ -124,7 +117,7 @@ namespace base64 {
             case ENCODE_TABLE_SIZE:
                 return m_table[62];
             case DECODE_TABLE_SIZE:
-                return static_cast<char>(m_table.find(62));
+                return char(m_table.find(62));
             default:
                 throw BadCoder();
         }
@@ -135,11 +128,11 @@ namespace base64 {
         switch(m_table.size()) {
             case ENCODE_TABLE_SIZE:
                 m_table[62] = value;
-                return;
+                break;
             case DECODE_TABLE_SIZE:
                 m_table[m_table.find(62)] = DECODE_UNKNOWN;
-                m_table[static_cast<unsigned char>(value)] = 62;
-                return;
+                m_table[(unsigned char)value] = 62;
+                break;
             default:
                 throw BadCoder();
         }
@@ -151,7 +144,7 @@ namespace base64 {
             case ENCODE_TABLE_SIZE:
                 return m_table[63];
             case DECODE_TABLE_SIZE:
-                return static_cast<char>(m_table.find(63));
+                return char(m_table.find(63));
             default:
                 throw BadCoder();
         }
@@ -162,11 +155,11 @@ namespace base64 {
         switch(m_table.size()) {
             case ENCODE_TABLE_SIZE:
                 m_table[63] = value;
-                return;
+                break;
             case DECODE_TABLE_SIZE:
                 m_table[m_table.find(63)] = DECODE_UNKNOWN;
-                m_table[static_cast<unsigned char>(value)] = 63;
-                return;
+                m_table[(unsigned char)value] = 63;
+                break;
             default:
                 throw BadCoder();
         }
@@ -197,9 +190,11 @@ namespace base64 {
         this->pad(pad);
         switch(tableSize) {
             case ENCODE_TABLE_SIZE:
-                return initEncodeTable(ch63rd, ch64th);
+                initEncodeTable(ch63rd, ch64th);
+                break;
             case DECODE_TABLE_SIZE:
-                return initDecodeTable(ch63rd, ch64th);
+                initDecodeTable(ch63rd, ch64th);
+                break;
             default:
                 throw std::invalid_argument("base64 - Invalid table size.");
         }
@@ -311,7 +306,7 @@ namespace base64 {
 
     string Coder::decode4Chars(unsigned char const* & bytes, size_t & nByte)const
     {
-        char ch, nCh = 0;
+        unsigned char ch, nCh = 0;
         UHigh3Bytes tribyte;
 
         for( int i = 0; i != 4; ++i ) {
@@ -338,7 +333,7 @@ namespace base64 {
             }
             //Decode char:
             ch = m_table[ch];
-            if(ch != DECODE_UNKNOWN) {
+            if(ch != (unsigned char)DECODE_UNKNOWN) {
                 tribyte.all <<= 6;
                 tribyte.all |= ch;
                 ++nCh;
