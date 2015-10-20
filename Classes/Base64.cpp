@@ -7,7 +7,7 @@
 //
 
 #include "Base64.h"
-#include "util.h"
+#include "util.hpp"
 
 #include <cctype>
 #include <stdexcept>

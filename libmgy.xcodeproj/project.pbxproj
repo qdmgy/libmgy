@@ -7,12 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		320493151AF0BFB800A449BE /* Var.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 320493131AF0BFB800A449BE /* Var.cpp */; };
+		320493161AF0BFB800A449BE /* Var.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 320493141AF0BFB800A449BE /* Var.hpp */; };
+		32EED92E1BCCBC2600923340 /* util.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 0B90DCAD17CF2F9300A1731A /* util.hpp */; settings = {ASSET_TAGS = (); }; };
 		A7A58EFF17422B93006F2CBD /* Base64.cpp in Sources */ = {isa = PBXBuildFile; fileRef = A7A58EFD17422B93006F2CBD /* Base64.cpp */; };
 		A7A58F0017422B93006F2CBD /* Base64.h in Headers */ = {isa = PBXBuildFile; fileRef = A7A58EFE17422B93006F2CBD /* Base64.h */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		0B90DCAD17CF2F9300A1731A /* util.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = util.h; sourceTree = "<group>"; };
+		0B90DCAD17CF2F9300A1731A /* util.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = util.hpp; sourceTree = "<group>"; };
+		320493131AF0BFB800A449BE /* Var.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Var.cpp; sourceTree = "<group>"; };
+		320493141AF0BFB800A449BE /* Var.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Var.hpp; sourceTree = "<group>"; };
 		A7A58EEE17422ACB006F2CBD /* libmgy.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libmgy.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		A7A58EFD17422B93006F2CBD /* Base64.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Base64.cpp; sourceTree = "<group>"; };
 		A7A58EFE17422B93006F2CBD /* Base64.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Base64.h; sourceTree = "<group>"; };
@@ -50,7 +55,9 @@
 			children = (
 				A7A58EFD17422B93006F2CBD /* Base64.cpp */,
 				A7A58EFE17422B93006F2CBD /* Base64.h */,
-				0B90DCAD17CF2F9300A1731A /* util.h */,
+				0B90DCAD17CF2F9300A1731A /* util.hpp */,
+				320493131AF0BFB800A449BE /* Var.cpp */,
+				320493141AF0BFB800A449BE /* Var.hpp */,
 			);
 			path = Classes;
 			sourceTree = "<group>";
@@ -62,6 +69,8 @@
 			isa = PBXHeadersBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				32EED92E1BCCBC2600923340 /* util.hpp in Headers */,
+				320493161AF0BFB800A449BE /* Var.hpp in Headers */,
 				A7A58F0017422B93006F2CBD /* Base64.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -92,7 +101,7 @@
 		A7A58EE617422ACB006F2CBD /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 0500;
+				LastUpgradeCheck = 0700;
 				ORGANIZATIONNAME = "牟光远";
 			};
 			buildConfigurationList = A7A58EE917422ACB006F2CBD /* Build configuration list for PBXProject "libmgy" */;
@@ -118,6 +127,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A7A58EFF17422B93006F2CBD /* Base64.cpp in Sources */,
+				320493151AF0BFB800A449BE /* Var.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -137,6 +147,7 @@
 				CLANG_WARN_INT_CONVERSION = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
@@ -184,14 +195,16 @@
 		A7A58EF317422ACB006F2CBD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CLANG_CXX_LANGUAGE_STANDARD = "c++0x";
+				CLANG_CXX_LANGUAGE_STANDARD = "c++14";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_WARN_CXX0X_EXTENSIONS = YES;
 				CLANG_WARN_OBJC_MISSING_PROPERTY_SYNTHESIS = YES;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
 				EXECUTABLE_PREFIX = "";
 				GCC_CHAR_IS_UNSIGNED_CHAR = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
-				GCC_PREPROCESSOR_DEFINITIONS = "_DEBUG=1";
+				GCC_PREPROCESSOR_DEFINITIONS = "DEBUG=1";
 				GCC_WARN_HIDDEN_VIRTUAL_FUNCTIONS = YES;
 				GCC_WARN_NON_VIRTUAL_DESTRUCTOR = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -201,10 +214,11 @@
 		A7A58EF417422ACB006F2CBD /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CLANG_CXX_LANGUAGE_STANDARD = "c++0x";
+				CLANG_CXX_LANGUAGE_STANDARD = "c++14";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_WARN_CXX0X_EXTENSIONS = YES;
 				CLANG_WARN_OBJC_MISSING_PROPERTY_SYNTHESIS = YES;
+				COMBINE_HIDPI_IMAGES = YES;
 				EXECUTABLE_PREFIX = "";
 				GCC_CHAR_IS_UNSIGNED_CHAR = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;

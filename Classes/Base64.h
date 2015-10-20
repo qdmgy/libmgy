@@ -7,12 +7,11 @@
 //
 
 #ifndef __BASE64__H__
-
+#define __BASE64__H__
 
 
 #include <cstddef>
 #include <string>
-
 
 
 namespace base64 {
@@ -119,6 +118,4 @@ namespace base64 {
 }
 
 
-
-#define __BASE64__H__
 #endif

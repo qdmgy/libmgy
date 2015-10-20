@@ -1,28 +1,27 @@
 //
-//  util.h
+//  util.hpp
 //  libmgy
 //
-//  Created by 牟光远 on 2013-8-29.
-//  Copyright (c) 2013年 牟光远. All rights reserved.
+//  Created by 牟光远 on 2014-8-29.
+//  Copyright (c) 2014年 牟光远. All rights reserved.
 //
 
-#ifndef __UTIL__H__
-
+#ifndef __UTIL__HPP__
+#define __UTIL__HPP__
 
 
 #include <cstddef>
 
 
-
 namespace util {
+	using std::nullptr_t;
     using std::size_t;
-
 
     inline
     bool IsBigEndian()
     {
-        int const I = 1;
-        auto p = (char const*)&I;
+        constexpr int I = 1;
+        auto p = (char*)&I;
         return !*p;
     }
 
@@ -36,6 +35,4 @@ namespace util {
 }
 
 
-
-#define __UTIL__H__
 #endif
