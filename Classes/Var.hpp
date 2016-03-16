@@ -1,131 +1,199 @@
-//
-//  Var.hpp
-//  libmgy
-//
-//  Created by 牟光远 on 2015-4-29.
-//  Copyright (c) 2015年 牟光远. All rights reserved.
-//
-
-#ifndef __Var__hpp__
-#define __Var__hpp__
+﻿#ifndef VAR_HPP
+#define VAR_HPP
 
 
 #include <functional>
-#include <initializer_list>
 #include <iostream>
-#include <memory>
-#include <stdexcept>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
-
-class Var
-{
-public:
-	using number_t = double;
-	struct TypeError;
-
-	friend std::hash<Var>;
-	friend TypeError;
-	friend bool operator==(Var const &, Var const &) noexcept;
-	friend bool operator!=(Var const & lhs, Var const & rhs) noexcept
-		{return!(lhs==rhs);}
-	friend std::ostream & operator<<(std::ostream &, Var const &);
-
-	explicit operator bool() noexcept;
-
-	auto begin()const;
-	auto end()const;
-
-	void print()
-		{std::cout<<*this;}
-
-	std::string type()
-		{return to_string(m_type);}
-
-private:
-	union{
-		bool m_bool;
-		number_t m_num;
-		std::shared_ptr<std::string const> m_str;
-		std::shared_ptr<std::function<Var(Var)>const> m_fn;
-		std::shared_ptr<std::unordered_map<Var,Var>> m_tbl;
-	};
-	enum class Type
-	{
-		NIL = 0,
-		BOOLEAN,
-		NUMBER,
-		STRING,
-		FUNCTION,
-		TABLE
-	} const m_type;
-
-	static std::string to_string(Type);
-
-public:
-	Var(std::nullptr_t v = nullptr) noexcept
-		: m_type(Type::NIL) {}
-
-	Var(bool v) noexcept
-		: m_bool(v), m_type(Type::BOOLEAN) {}
-
-	Var(int v) noexcept
-		: m_num(v), m_type(Type::NUMBER) {}
-
-	Var(number_t v) noexcept
-		: m_num(v), m_type(Type::NUMBER) {}
-
-	Var(char const * v)
-		: m_str(new std::string (v)), m_type(Type::STRING) {}
-
-	Var(std::string const & v)
-		: m_str(new std::string (v)), m_type(Type::STRING) {}
-
-	Var(std::function<Var(Var)> v)
-		: m_fn(new decltype(v) (std::move(v))), m_type(Type::FUNCTION) {}
-
-	Var(std::initializer_list<Var>);
-
-	Var(Var const &) noexcept;
-	Var(Var &&) noexcept;
-	~Var() noexcept;
-	Var & operator=(Var rhs) noexcept
-		{this->~Var();return*new(this)Var(std::move(rhs));}
-};
+struct Var;
 
 
 template<>
 struct std::hash<Var>
 {
-	using argument_type = Var;
-	using result_type = std::size_t;
-
-	result_type operator()(argument_type const & var)const noexcept
-	{
-		switch (var.m_type) {
-			case Var::Type::NIL:
-				return std::hash<void*>{}(nullptr);
-			case Var::Type::BOOLEAN:
-				return std::hash<decltype(var.m_bool)>{}(var.m_bool);
-			case Var::Type::NUMBER:
-				return std::hash<decltype(var.m_num)>{}(var.m_num);
-			case Var::Type::STRING:
-				return std::hash<decltype(var.m_str)>{}(var.m_str);
-			case Var::Type::FUNCTION:
-				return std::hash<decltype(var.m_fn)>{}(var.m_fn);
-			case Var::Type::TABLE:
-				return std::hash<decltype(var.m_tbl)>{}(var.m_tbl);
-		}
-	}
+	using argument_type	= Var;
+	using result_type	= std::size_t;
+	result_type operator()(argument_type const &)const;
 };
 
 
-struct Var::TypeError
-	: public std::runtime_error
+struct Var
 {
-	explicit TypeError(Type);
+	//类型
+	enum class Type {
+		nil, boolean, number, string, function, table
+	};
+	static std::string typeName(Type);
+
+	using nil_t		= decltype(nullptr);
+	using bool_t	= bool;
+	using number_t	= double;
+	using string_t	= const std::string;
+	using function_t= const std::function<Var(Var)>;
+	using table_t	= std::unordered_map<Var, Var>;
+	class	Ref;
+	class	Ite;
+	struct	TypeError;
+
+	//管理员：引用计数
+	static std::unordered_map<const void*, int> mrc;
+	static std::mutex mrcm;
+	static const Var nil;
+
+	//成员
+	union {
+		bool_t		b;
+		number_t	n;
+		string_t	*s;
+		function_t	*f;
+		table_t		*t;
+	};
+	Type type = Type::nil;
+	mutable bool weak = false;
+
+	//构造
+	Var() = default;
+	Var(nil_t);
+	Var(bool_t);
+	Var(int);
+	Var(unsigned);
+	Var(number_t);
+	Var(char const *);
+	Var(std::string&&);
+	Var(std::string const &);
+	static Var function(function_t &);
+	static Var table();
+	Var(std::initializer_list<Var>);
+
+	//Special Member Function
+	~Var();
+	Var(Var&&);
+	Var & operator=(Var&&);
+	Var(Var const &);
+	Var & operator=(Var const &);
+
+	//强弱转换
+	void setWeak(bool)const;
+	void setKeyWeak(Var, bool)const;
+
+	//全类型
+	bool operator!()const					{ return !(bool)*this; }
+	explicit operator bool()const;
+
+	//数字
+	Var operator-()const;
+
+	//函数
+	Var operator()(Var)const;
+
+	//表
+	Ref operator[](Var)const;
+	Ite begin()const;
+	Ite end()const;
+};
+
+class Var::Ref
+{
+	table_t * _tbl;
+	Var _key;
+	Var const & var()const;
+public:
+	Ref(table_t*, Var const &);
+	Ref(Ref const &) = default;
+	Ref & operator=(Ref&&) = delete;
+	Ref & operator=(Ref const &) = delete;
+	Ref const & operator=(Var const &)const;
+
+	operator Var const &()const						{ return var(); }
+
+	void setWeak(bool w)const						{ return var().setWeak(w); }
+	void setKeyWeak(Var const & k, bool w)const		{ return var().setKeyWeak(k, w); }
+	bool operator!()const							{ return !var(); }
+	explicit operator bool()const					{ return (bool)var(); }
+	Var operator-()const								{ return -var(); }
+	Var operator()(Var const & v)const				{ return var()(v); }
+	Ref operator[](Var const & k)const				{ return var()[k]; }
+	Ite begin()const;
+	Ite end()const;
+};
+
+class Var::Ite
+	: public std::unordered_map<Var, Var>::iterator
+{
+	table_t * _tbl;
+public:
+	using base = std::unordered_map<Var, Var>::iterator;
+	Ite(base&&, table_t);
+	Var const & k()const									{ return (*this)->first; }
+	Var::Ref v()const										{ return {_tbl, k()}; }
+	std::pair<Var const &, Var::Ref> operator*()const		{ return {k(), v()}; }
+};
+
+//全类型
+bool operator==(Var, Var);
+inline bool operator!=(Var lhs, Var rhs)				{ return !(lhs == rhs); }
+std::ostream & operator<<(std::ostream &, Var);
+inline std::string type(Var var)						{ return Var::typeName(var.type); }
+
+//数字、字符串
+bool operator<(Var, Var);
+bool operator>(Var, Var);
+inline bool operator>=(Var lhs, Var rhs)		{ return !(lhs < rhs); }
+inline bool operator<=(Var lhs, Var rhs)		{ return !(lhs > rhs); }
+Var operator+(Var, Var);
+
+//数字
+Var operator-(Var, Var);
+Var operator*(Var, Var);
+Var operator/(Var, Var);
+Var operator%(Var, Var);
+Var operator^(Var, Var);
+Var toNumber(Var);
+template<typename Ty>
+Ty toNumber(Var);
+
+//字符串
+Var toString(Var);
+char const * toCString(Var);
+
+//表
+std::ostream & printTable(Var, std::ostream & os = std::cout);
+
+
+//-------------------------------Implementation---------------------------------
+
+struct Var::TypeError : std::runtime_error
+{
+	TypeError(Type, std::string const &);
+	TypeError(Type, Type, std::string const &);
 };
 
 
-#endif /* defined(__Var__hpp__) */
+Var Var::function(function_t& fn)
+{
+	Var rtn;
+	rtn.f = new std::function<Var(Var)>(fn);
+	if (*rtn.f) {
+		rtn.type = Type::function;
+	} 
+	else {
+		delete rtn.f;
+	}
+	return rtn;
+}
+
+
+template<typename Ty>
+Ty toNumber(Var var)
+{
+	Var n = toNumber(var);
+	if (!n)
+		throw Var::TypeError(var.type, __FUNCTION__);
+	return (Ty)n.n;
+}
+
+
+#endif

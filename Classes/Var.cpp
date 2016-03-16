@@ -1,191 +1,529 @@
-//
-//  Var.cpp
-//  libmgy
-//
-//  Created by 牟光远 on 2015-4-29.
-//  Copyright (c) 2015年 牟光远. All rights reserved.
-//
+﻿#include "Var.hpp"
 
-#include "Var.hpp"
-
-#include <iomanip>
+// #include <cmath>
+#include <cstdio>
+// #include <cstdlib>
+#include <cstring>
 using namespace std;
 
+#define LOCK_GUARD(name,lock) std::lock_guard<decltype(lock)>name(lock)
 
-Var::TypeError::TypeError(Type t)
-	: runtime_error(to_string(t) + " type has no such operation\n")
+
+decltype(Var::mrc)	Var::mrc;
+decltype(Var::mrcm)	Var::mrcm;
+decltype(Var::nil)	Var::nil;
+
+
+auto hash<Var>::operator()(argument_type const & var)const -> result_type
 {
+	switch (var.type) {
+		case Var::Type::nil:
+			return hash < void* > {}(nullptr);
+		case Var::Type::boolean:
+			return hash < Var::bool_t > {}(var.b);
+		case Var::Type::number:
+			return hash < Var::number_t > {}(var.n);
+		default:
+			return hash < void* > {}(var.t);
+	}
 }
 
 
-auto Var::begin()const
+string Var::typeName(Type type)
 {
-	if (m_type != Type::TABLE) {
-		throw TypeError{m_type};
+	switch (type) {
+		default:
+			return "nil";
+		case Type::boolean:
+			return "boolean";
+		case Type::number:
+			return "number";
+		case Type::string:
+			return "string";
+		case Type::function:
+			return "function";
+		case Type::table:
+			return "table";
 	}
-	return m_tbl->begin();
 }
 
-auto Var::end()const
+Var::Var(nil_t)
+	: Var()
 {
-	if (m_type != Type::TABLE) {
-		throw TypeError{m_type};
-	}
-	return m_tbl->end();
 }
 
-bool operator==(Var const & lhs, Var const & rhs) noexcept
+Var::Var(bool_t val)
+	: b(val)
+	, type(Type::boolean)
 {
-	if (lhs.m_type != rhs.m_type) {
-		return false;
+}
+
+Var::Var(int val)
+	: Var{(number_t)val}
+{
+}
+
+Var::Var(unsigned val)
+	: Var{(number_t)val}
+{
+}
+
+Var::Var(number_t val)
+	: n(val)
+	, type(Type::number)
+{
+}
+
+Var::Var(char const * val)
+	: s(new string{val})
+	, type(Type::string)
+{
+	LOCK_GUARD(lg, mrcm);
+	mrc.emplace(s, 1);
+}
+
+Var::Var(string && val)
+	: s(new string{std::move(val)})
+	, type(Type::string)
+{
+	LOCK_GUARD(lg, mrcm);
+	mrc.emplace(s, 1);
+}
+
+Var::Var(string const & val)
+	: s(new string{val})
+	, type(Type::string)
+{
+	LOCK_GUARD(lg, mrcm);
+	mrc.emplace(s, 1);
+}
+
+Var Var::function(function_t & val)
+{
+	Var rtn;
+	if (val) {
+		rtn.f = new function_t(val);
+		rtn.type = Type::function;
+		LOCK_GUARD(lg, mrcm);
+		mrc.emplace(rtn.f, 1);
 	}
-	else {
-		switch (rhs.m_type) {
-			case Var::Type::NIL:
-				return true;
-			case Var::Type::BOOLEAN:
-				return lhs.m_bool == rhs.m_bool;
-			case Var::Type::NUMBER:
-				return lhs.m_num == rhs.m_num;
-			case Var::Type::STRING:
-				return lhs.m_str == rhs.m_str || *lhs.m_str == *rhs.m_str;
-			case Var::Type::FUNCTION:
-				return lhs.m_fn == rhs.m_fn;
-			case Var::Type::TABLE:
-				return lhs.m_tbl == rhs.m_tbl;
+	return rtn;
+}
+
+Var Var::table()
+{
+	Var rtn;
+	rtn.t = new table_t;
+	rtn.type = Type::table;
+	LOCK_GUARD(lg, mrcm);
+	mrc.emplace(rtn.t, 1);
+	return rtn;
+}
+
+Var::Var(initializer_list<Var> il)
+	: t(new table_t{il.size()})
+	, type(Type::table)
+{
+	auto k = 1;
+	for (auto & v : il) {
+		if (v != nil) {
+			t->emplace(k++, v);
 		}
 	}
+	LOCK_GUARD(lg, mrcm);
+	mrc.emplace(t, 1);
 }
 
-ostream & operator<<(ostream & os, Var const & rhs)
+Var::~Var()
 {
-	switch (rhs.m_type) {
-		case Var::Type::BOOLEAN:
-			os<<boolalpha<<rhs.m_bool;
-			break;
-		case Var::Type::NUMBER:
-			os<<rhs.m_num;
-			break;
-		case Var::Type::STRING:
-			os<<"\""<<*rhs.m_str<<"\"";
-			break;
-		case Var::Type::TABLE:
-			os<<"{\n";
-			for (auto & pair : rhs) {
-				os<<pair.first<<"="<<pair.second<<",\n";
+	switch (type) {
+		case Type::string:{
+			LOCK_GUARD(lg, mrcm);
+			if (--mrc[s] < 1) {
+				mrc.erase(s);
+				delete s;
 			}
-			os<<"}";
+			break;
+		}
+		case Type::function:
+			if (!weak) {
+				LOCK_GUARD(lg, mrcm);
+				if (--mrc[f] < 1) {
+					mrc.erase(f);
+					delete f;
+				}
+			}
+			break;
+		case Type::table:
+			if (!weak) {
+				LOCK_GUARD(lg, mrcm);
+				if (--mrc[t] < 1) {
+					mrc.erase(t);
+					delete t;
+				}
+			}
 			break;
 		default:
-			os<<Var::to_string(rhs.m_type);
+			break;
 	}
-	return os;
 }
 
-Var::operator bool() noexcept
+Var::Var(Var && rhs)
 {
-	switch (m_type) {
-		case Type::NIL:
+	memcpy(this, &rhs, sizeof(Var));
+	rhs.type = Type::nil;
+}
+
+Var & Var::operator=(Var && rhs)
+{
+	if (this != &rhs) {
+		Var tmp;
+		memcpy(&tmp, this, sizeof(Var));
+		memcpy(this, &rhs, sizeof(Var));
+		memcpy(&rhs, &tmp, sizeof(Var));
+	}
+	return *this;
+}
+
+Var::Var(Var const & rhs)
+	: type(rhs.type)
+	, weak(false)
+{
+	memcpy(&n, &rhs.n, sizeof(n));
+	switch (type) {
+		case Type::string:
+		case Type::function:
+		case Type::table:{
+			LOCK_GUARD(lg, mrcm);
+			auto it = mrc.find(t);
+			if (it != mrc.end()) {
+				++it->second;
+			}
+			else {
+				type = Type::nil;
+			}
+			break;
+		}
+		default:
+			break;
+	}
+}
+
+Var & Var::operator=(Var const & rhs)
+{
+	if (this != &rhs) {
+		this->~Var();
+		new(this) Var(rhs);
+	}
+	return *this;
+}
+
+Var::operator bool()const
+{
+	switch (type) {
+		case Type::nil:
 			return false;
-		case Type::BOOLEAN:
-			return m_bool;
-		case Type::FUNCTION:
-			return (bool)*m_fn;
+		case Type::boolean:
+			return b;
 		default:
 			return true;
 	}
 }
 
-string Var::to_string(Type t)
+Var Var::operator-()const
 {
-	switch (t) {
-		case Type::NIL:
-			return "nil";
-		case Type::BOOLEAN:
-			return "boolean";
-		case Type::NUMBER:
-			return "number";
-		case Type::STRING:
-			return "string";
-		case Type::FUNCTION:
-			return "function";
-		case Type::TABLE:
-			return "table";
+	if (Type::number != type) {
+		throw TypeError(type, __FUNCTION__);
+	}
+	return -n;
+}
+
+Var Var::operator()(Var args)const
+{
+	if (Type::function != type) {
+		throw TypeError(type, __FUNCTION__);
+	}
+	if (fRC.find(f) == fRC.end()) {
+		throw TypeError(Type::nil, __FUNCTION__);
+	}
+	return (*f)(args);
+}
+
+Var::Ref Var::operator[](Var & k)const
+{
+	if (Type::table != type) {
+		throw TypeError(type, __FUNCTION__);
+	}
+	if (tRC.find(t) == tRC.end()) {
+		throw TypeError(Type::nil, __FUNCTION__);
+	}
+	Var & v = (*t)[std::move(k)];
+	switch (v.type) {
+		case Type::function:
+			if (fRC.find(v.f) == fRC.end()) {
+				v.type = Type::nil;
+			}
+			break;
+		case Type::table:
+			if (tRC.find(v.t) == tRC.end()) {
+				v.type = Type::nil;
+			}
+			break;
+		default:
+			break;
+	}
+	return (Ref)v;
+}
+
+Var::Ref Var::operator[](Var && k)const
+{
+	if (Type::table != type) {
+		throw TypeError(type, __FUNCTION__);
+	}
+	if (tRC.find(t) == tRC.end()) {
+		throw TypeError(Type::nil, __FUNCTION__);
+	}
+	Var & v = (*t)[k];
+	switch (v.type) {
+		case Type::function:
+			if (fRC.find(v.f) == fRC.end()) {
+				v.type = Type::nil;
+			}
+			break;
+		case Type::table:
+			if (tRC.find(v.t) == tRC.end()) {
+				v.type = Type::nil;
+			}
+			break;
+		default:
+			break;
+	}
+	return (Ref)v;
+}
+
+Var::Ref Var::operator[](Var const & k)const
+{
+	return k.weak ? operator[]((Var&)k) : operator[]((Var&&)k);
+}
+
+Var::Ite Var::begin()const
+{
+	if (Type::table != type) {
+		throw TypeError(type, __FUNCTION__);
+	}
+	if (tRC.find(t) == tRC.end()) {
+		throw TypeError(Type::nil, __FUNCTION__);
+	}
+	return (Ite)t->begin();
+}
+
+Var::Ite Var::end()const
+{
+	if (Type::table != type) {
+		throw TypeError(type, __FUNCTION__);
+	}
+	if (tRC.find(t) == tRC.end()) {
+		throw TypeError(Type::nil, __FUNCTION__);
+	}
+	return (Ite)t->end();
+}
+
+
+Var::Ref::Ref(Var & var)
+	: _cp(&var)
+{
+}
+
+Var::Ref Var::Ref::operator=(Var & v)const
+{
+	if (_cp != &v) {
+		_cp->~Var();
+		new(_cp)Var(std::move(v));
+	}
+	return *this;
+}
+
+Var::Ref Var::Ref::operator=(Var && v)const
+{
+	return Ref(*_cp = v);
+}
+
+Var::Ref Var::Ref::operator=(Var const & v)const
+{
+	return v.weak ? operator=((Var&)v) : Ref(*_cp = v);
+}
+
+
+Var::Ite::Ite(base && rr)
+	: base(std::move(rr))
+{
+}
+
+
+bool operator==(Var lhs, Var rhs)
+{
+	if (lhs.type != rhs.type) {
+		return false;
+	}
+	switch (rhs.type) {
+		default:
+			return true;
+		case Var::Type::boolean:
+			return lhs.b == rhs.b;
+		case Var::Type::number:
+			return lhs.n == rhs.n;
+		case Var::Type::string:
+			return lhs.s == rhs.s || *lhs.s == *rhs.s;
+		case Var::Type::function:
+			return lhs.f == rhs.f;
+		case Var::Type::table:
+			return lhs.t == rhs.t;
 	}
 }
 
-Var::Var(initializer_list<Var> list)
-	: m_tbl(new unordered_map<Var, Var> (list.size()))
-	, m_type(Type::TABLE)
+ostream & operator<<(ostream & os, Var rhs)
 {
-	int idx = 1;
-	for (auto & var : list) {
-		if (var != nullptr) {
-			m_tbl->emplace(idx++, var);
-		}
+	Var s = toString(rhs);
+	switch (rhs.type) {
+		case Var::Type::string:
+			return os << '\"' << toCString(s) << '\"';
+		case Var::Type::table:
+			return os << '{' << toCString(s) << '}';
+		default:
+			return os << toCString(s);
 	}
 }
 
-Var::Var(Var const & rhs) noexcept
-	: m_type(rhs.m_type)
+bool operator<(Var lhs, Var rhs)
 {
-	switch (m_type) {
-		case Type::NIL:
-			break;
-		case Type::BOOLEAN:
-			m_bool = rhs.m_bool;
-			break;
-		case Type::NUMBER:
-			m_num = rhs.m_num;
-			break;
-		case Type::STRING:
-			new(&m_str) decltype(m_str) {rhs.m_str};
-			break;
-		case Type::FUNCTION:
-			new(&m_fn) decltype(m_fn) {rhs.m_fn};
-			break;
-		case Type::TABLE:
-			new(&m_tbl) decltype(m_tbl) {rhs.m_tbl};
-			break;
+	if (lhs.type != rhs.type) {
+		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
+	}
+	switch (rhs.type) {
+		case Var::Type::number:
+			return lhs.n < rhs.n;
+		case Var::Type::string:
+			return lhs.s != rhs.s && *lhs.s < *rhs.s;
+		default:
+			throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
 	}
 }
 
-Var::Var(Var && rhs) noexcept
-	: m_type(rhs.m_type)
+bool operator>(Var lhs, Var rhs)
 {
-	switch (m_type) {
-		case Type::NIL:
-			break;
-		case Type::BOOLEAN:
-			m_bool = rhs.m_bool;
-			break;
-		case Type::NUMBER:
-			m_num = rhs.m_num;
-			break;
-		case Type::STRING:
-			new(&m_str) decltype(m_str) {std::move(rhs.m_str)};
-			break;
-		case Type::FUNCTION:
-			new(&m_fn) decltype(m_fn) {std::move(rhs.m_fn)};
-			break;
-		case Type::TABLE:
-			new(&m_tbl) decltype(m_tbl) {std::move(rhs.m_tbl)};
-			break;
+	if (lhs.type != rhs.type) {
+		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
+	}
+	switch (rhs.type) {
+		case Var::Type::number:
+			return lhs.n > rhs.n;
+		case Var::Type::string:
+			return lhs.s != rhs.s && *lhs.s > *rhs.s;
+		default:
+			throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
 	}
 }
 
-Var::~Var() noexcept
+Var operator+(Var lhs, Var rhs)
 {
-	switch (m_type) {
-		case Type::STRING:
-			m_str = nullptr;
-			break;
-		case Type::FUNCTION:
-			m_fn = nullptr;
-			break;
-		case Type::TABLE:
-			m_tbl = nullptr;
-			break;
-		default:;
+	if (lhs.type != rhs.type) {
+		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
 	}
+	switch (rhs.type) {
+		case Var::Type::number:
+			return lhs.n + rhs.n;
+		case Var::Type::string:
+			return *lhs.s + *rhs.s;
+		default:
+			throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
+	}
+}
+
+Var operator-(Var lhs, Var rhs)
+{
+	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type) {
+		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
+	}
+	return lhs.n - rhs.n;
+}
+
+Var operator*(Var lhs, Var rhs)
+{
+	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type) {
+		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
+	}
+	return lhs.n * rhs.n;
+}
+
+Var operator/(Var lhs, Var rhs)
+{
+	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type) {
+		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
+	}
+	return lhs.n / rhs.n;
+}
+
+Var operator%(Var lhs, Var rhs)
+{
+	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type) {
+		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
+	}
+	return fmod(lhs.n, rhs.n);
+}
+
+Var operator^(Var lhs, Var rhs)
+{
+	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type) {
+		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
+	}
+	return pow(lhs.n, rhs.n);
+}
+
+Var toNumber(Var var)
+{
+	switch (var.type) {
+		case Var::Type::number:
+			return var;
+		case Var::Type::string:
+			return atof(var.s->c_str());
+		default:
+			return nullptr;
+	}
+}
+
+Var toString(Var var)
+{
+	char s[20] = "";
+	switch (var.type) {
+		case Var::Type::nil:
+			return type(var);
+		case Var::Type::boolean:
+			return var.b ? "true" : "false";
+		case Var::Type::number:
+			return to_string(var.n);//sprintf(s, "%g", var.n);
+		case Var::Type::string:
+			return var;
+		default:
+			sprintf(s, "0x%p", var.f);
+			return s;
+	}
+}
+
+char const * toCString(Var var)
+{
+	if (Var::Type::string != var.type) {
+		throw Var::TypeError(var.type, __FUNCTION__);
+	}
+	return var.s->c_str();
+}
+
+
+Var::TypeError::TypeError(Type type, string const & func)
+	: runtime_error("Call "+func+" with a "+typeName(type))
+{
+}
+
+Var::TypeError::TypeError(Type lhs, Type rhs, string const & func)
+	: runtime_error("Call "+func+" with "+typeName(lhs)+" and "+typeName(rhs))
+{
 }
