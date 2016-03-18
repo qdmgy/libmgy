@@ -10,20 +10,23 @@
 
 struct Var;
 
-
-template<>
-struct std::hash<Var>
+namespace std
 {
-	using argument_type	= Var;
-	using result_type	= std::size_t;
-	result_type operator()(argument_type const &)const;
-};
+	template<>
+	struct hash<Var>
+	{
+		using argument_type = Var;
+		using result_type = size_t;
+		size_t operator()(Var const &)const;
+	};
+	void swap(Var &, Var &);
+}
 
 
 struct Var
 {
 	//类型
-	enum class Type {
+	enum class Type : char {
 		nil, boolean, number, string, function, table
 	};
 	static std::string typeName(Type);
@@ -40,7 +43,7 @@ struct Var
 
 	//管理员：引用计数
 	static std::unordered_map<const void*, int> mrc;
-	static std::mutex mrcm;
+	static std::recursive_mutex mrcm;
 	static const Var nil;
 
 	//成员
@@ -51,8 +54,8 @@ struct Var
 		function_t	*f;
 		table_t		*t;
 	};
-	Type type = Type::nil;
-	mutable bool weak = false;
+	mutable Type type	= Type::nil;
+	mutable bool strong	= false;
 
 	//构造
 	Var() = default;
@@ -71,17 +74,13 @@ struct Var
 	//Special Member Function
 	~Var();
 	Var(Var&&);
-	Var & operator=(Var&&);
 	Var(Var const &);
+	Var & operator=(Var&&);
 	Var & operator=(Var const &);
 
-	//强弱转换
-	void setWeak(bool)const;
-	void setKeyWeak(Var, bool)const;
-
 	//全类型
-	bool operator!()const					{ return !(bool)*this; }
 	explicit operator bool()const;
+	bool operator!()const					{ return !(bool)*this; }
 
 	//数字
 	Var operator-()const;
@@ -91,45 +90,52 @@ struct Var
 
 	//表
 	Ref operator[](Var)const;
-	Ite begin()const;
-	Ite end()const;
+	table_t::iterator begin()const;
+	table_t::iterator end()const;
+	table_t::const_iterator cbegin()const;
+	table_t::const_iterator cend()const;
+
+	//强弱转换
+	void setWeak(bool val = true)const;
+	void setKeyWeak(Var, bool val = true)const;
 };
 
 class Var::Ref
 {
-	table_t * _tbl;
-	Var _key;
-	Var const & var()const;
+	table_t	*_tbl;
+	Var		_key;
+	bool	_strong;
+	Var & get()const;
 public:
-	Ref(table_t*, Var const &);
-	Ref(Ref const &) = default;
+	Ref(table_t *, bool, Var&&);
+	Ref(Ref&&);
+	Ref(Ref const &) = delete;
 	Ref & operator=(Ref&&) = delete;
 	Ref & operator=(Ref const &) = delete;
-	Ref const & operator=(Var const &)const;
-
-	operator Var const &()const						{ return var(); }
-
-	void setWeak(bool w)const						{ return var().setWeak(w); }
-	void setKeyWeak(Var const & k, bool w)const		{ return var().setKeyWeak(k, w); }
-	bool operator!()const							{ return !var(); }
-	explicit operator bool()const					{ return (bool)var(); }
-	Var operator-()const								{ return -var(); }
-	Var operator()(Var const & v)const				{ return var()(v); }
-	Ref operator[](Var const & k)const				{ return var()[k]; }
-	Ite begin()const;
-	Ite end()const;
+	Var & operator=(Var const &)const;
+// 	operator Var &()const							{ return get(); }
+// 	void setWeak(bool w)const						{ return get().setWeak(w); }
+// 	void setKeyWeak(Var const & k, bool w)const		{ return get().setKeyWeak(k, w); }
+// 	bool operator!()const							{ return !get(); }
+// 	explicit operator bool()const					{ return (bool)get(); }
+// 	Var operator-()const								{ return -get(); }
+// 	Var operator()(Var const & v)const				{ return get()(v); }
+// 	Ref operator[](Var const & k)const				{ return get()[k]; }
+// 	Ite begin()const;
+// 	Ite end()const;
 };
 
 class Var::Ite
-	: public std::unordered_map<Var, Var>::iterator
+	: public table_t::iterator
 {
-	table_t * _tbl;
+	table_t	*_tbl;
+	bool	_strong;
 public:
 	using base = std::unordered_map<Var, Var>::iterator;
 	Ite(base&&, table_t);
-	Var const & k()const									{ return (*this)->first; }
-	Var::Ref v()const										{ return {_tbl, k()}; }
-	std::pair<Var const &, Var::Ref> operator*()const		{ return {k(), v()}; }
+	Var k()const									{ return (*this)->first; }
+	Var::Ref v()const										{ return{_tbl, _strong, k()}; }
+	std::pair<Var const, Var::Ref> operator*()const		{ return {k(), v()}; }
 };
 
 //全类型
