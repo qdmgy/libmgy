@@ -1,7 +1,11 @@
-﻿#include "Var.hpp"
-// #include <cmath>
-// #include <cstdio>
-// #include <cstdlib>
+﻿#ifdef _MSC_VER
+#define _CRT_SECURE_NO_WARNINGS
+#endif // _MSC_VER
+
+#include "Var.hpp"
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 using namespace std;
 
@@ -12,32 +16,22 @@ decltype(Var::mrcm)	Var::mrcm;
 #define lockGuard(name) std::lock_guard<decltype(Var::mrcm)>name(Var::mrcm)
 
 
-size_t std::hash<Var>::operator()(Var const & var)const
+size_t std::hash<Var>::operator()(Var const & var)const noexcept
 {
 	switch (var.type) {
 		case Var::Type::nil:
-			return hash < void* > {}(nullptr);
+			return hash<void*>{}(nullptr);
 		case Var::Type::boolean:
-			return hash < Var::bool_t > {}(var.b);
+			return hash<Var::bool_t>{}(var.b);
 		case Var::Type::number:
-			return hash < Var::number_t > {}(var.n);
+			return hash<Var::number_t>{}(var.n);
 		default:
-			return hash < void* > {}(var.t);
+			return hash<void*>{}(var.t);
 	}
 }
 
-void std::swap(Var & lhs, Var & rhs)
-{
-	if (&lhs == &rhs)
-		return;
-	char mem[sizeof(Var)];
-	memcpy(&mem, &lhs, sizeof(Var));
-	memcpy(&lhs, &rhs, sizeof(Var));
-	memcpy(&rhs, &mem, sizeof(Var));
-}
 
-
-string Var::typeName(Type type)
+string Var::TypeName(Type type) noexcept
 {
 	switch (type) {
 		default:
@@ -53,33 +47,6 @@ string Var::typeName(Type type)
 		case Type::table:
 			return "table";
 	}
-}
-
-Var::Var(nil_t)
-	: Var()
-{
-}
-
-Var::Var(bool_t val)
-	: b(val)
-	, type(Type::boolean)
-{
-}
-
-Var::Var(int val)
-	: Var{(number_t)val}
-{
-}
-
-Var::Var(unsigned val)
-	: Var{(number_t)val}
-{
-}
-
-Var::Var(number_t val)
-	: n(val)
-	, type(Type::number)
-{
 }
 
 Var::Var(char const * val)
@@ -148,7 +115,7 @@ Var::Var(initializer_list<Var> il)
 	mrc.emplace(t, 1);
 }
 
-Var::~Var()
+Var::~Var() noexcept
 {
 	if (strong) {
 		lockGuard(lg);
@@ -175,38 +142,57 @@ Var::~Var()
 	}
 }
 
-Var::Var(Var && rhs)
-{
-	memcpy(this, &rhs, sizeof(Var));
-	rhs.type = Type::nil;
-	rhs.strong = false;
-}
-
 Var::Var(Var const & rhs)
 {
-	memcpy(this, &rhs, sizeof(Var));
-	if (strong) {
-		lockGuard(lg);
-		++mrc[t];
+	switch (rhs.type) {
+		case Type::string:
+		case Type::function:
+		case Type::table:{
+			lockGuard(lg);
+			if (rhs) {
+				++mrc[t = rhs.t];
+				type = rhs.type;
+				strong = true;
+			}
+			break;
+		}
+		default:
+			memcpy(this, &rhs, sizeof(Var));
+			break;
 	}
-}
-
-Var & Var::operator=(Var && rhs)
-{
-	swap(*this, rhs);
-	return *this;
 }
 
 Var & Var::operator=(Var const & rhs)
 {
 	if (this != &rhs) {
-		Var thiz = std::move(*this);
-		new(this) Var(rhs);
+		if (rhs.strong) {
+			lockGuard(lg);
+			++mrc[rhs.t];
+		}
+		Var self;
+		memcpy(&self, this, sizeof(Var));
+		memcpy(this, &rhs, sizeof(Var));
 	}
 	return *this;
 }
 
-Var::operator bool()const
+Var::Var(Var && rhs) noexcept
+{
+	memcpy(this, &rhs, sizeof(Var));
+	new(&rhs)Var;
+}
+
+void Var::swap(Var & rhs) noexcept
+{
+	if (this == &rhs) return;
+
+	char mem[sizeof(Var)];
+	memcpy(&mem, this, sizeof(Var));
+	memcpy(this, &rhs, sizeof(Var));
+	memcpy(&rhs, &mem, sizeof(Var));
+}
+
+Var::operator bool()const noexcept
 {
 	switch (type) {
 		case Type::nil:
@@ -215,7 +201,7 @@ Var::operator bool()const
 			return b;
 		case Type::function:
 		case Type::table:
-			if (!strong && mrc.find(t) == mrc.end()) {
+			if (!strong && !mrc.count(t)) {
 				type = Type::nil;
 				return false;
 			}
@@ -226,12 +212,12 @@ Var::operator bool()const
 
 Var Var::operator-()const
 {
-	if (Type::number != type)
-		throw TypeError(type, __FUNCTION__);
-	return -n;
+	if (Type::number == type)
+		return -n;
+	throw TypeError(type, __FUNCTION__);
 }
 
-Var Var::operator()(Var args)const
+Var Var::operator()(Var const & args)const
 {
 	if (Type::function != type)
 		throw TypeError(type, __FUNCTION__);
@@ -243,11 +229,23 @@ Var Var::operator()(Var args)const
 	throw TypeError(type, __FUNCTION__);
 }
 
+Var Var::operator()(Var && args)const
+{
+	if (Type::function != type)
+		throw TypeError(type, __FUNCTION__);
+	if (strong)
+		return (*f)(std::move(args));
+	lockGuard(lg);
+	if (*this)
+		return (*f)(std::move(args));
+	throw TypeError(type, __FUNCTION__);
+}
+
 Var::Ref Var::operator[](Var k)const
 {
-	if (Type::table != type || !*this)
-		throw TypeError(type, __FUNCTION__);
-	return{t, strong, std::move(k)};
+	if (Type::table == type && *this)
+		return Ref(std::move(k), this);
+	throw TypeError(type, __FUNCTION__);
 }
 
 auto Var::begin()const -> table_t::iterator
@@ -298,100 +296,302 @@ auto Var::cend()const -> table_t::const_iterator
 	throw TypeError(type, __FUNCTION__);
 }
 
-void Var::setWeak(bool w)const
+bool Var::setWeak(bool weak)const
 {
-	if (!weak && w) {
-		switch (type) {
-			case Var::Type::function:
-				if (--fRC[f] <= 0) {
-					fRC.erase(f);
-					delete f;
-				}
-				weak = w;
-				return;
-			case Var::Type::table:
-				if (--tRC[t] <= 0) {
-					tRC.erase(t);
-					delete t;
-				}
-				weak = w;
-				return;
-			default:
-				return;
+	if (type < Type::function || strong != weak)
+		return !strong;
+
+	lockGuard(lg);
+	if (weak) {
+		if (--mrc[t] < 1) {
+			type = Type::nil;
+			mrc.erase(t);
+			Type::function == type ? delete f : delete t;
 		}
+		return strong = false;
 	}
-	if (weak && !w) {
-		switch (type) {
-			case Var::Type::function:{
-				auto ite = fRC.find(f);
-				if (ite != fRC.end()) {
-					++ite->second;
-					weak = w;
-				}
-				return;
-			}
-			case Var::Type::table:{
-				auto ite = tRC.find(t);
-				if (ite != tRC.end()) {
-					++ite->second;
-					weak = w;
-				}
-				return;
-			}
-			default:
-				return;
-		}
+	else if (*this) {
+		++mrc[t];
+		return strong = true;
 	}
+	return true;
 }
 
-void Var::setKeyWeak(Var key, bool w)const
+bool Var::setKeyWeak(Var k, bool weak)const
 {
-	if (type != Type::table)
+	if (Type::table != type)
 		throw TypeError(type, __FUNCTION__);
-	auto ite = t->find(key);
-	if (ite != t->end())
-		ite->first.setWeak(w);
+
+	auto staff = [t=this->t, &k, weak] {
+		auto it = t->find(k);
+		return t->end() == it || it->first.setWeak(weak);
+	};
+	if (strong)
+		return staff();
+	lockGuard(lg);
+	if (*this)
+		return staff();
+	throw TypeError(type, __FUNCTION__);
 }
 
 
-Var::Ref::Ref(Var & var)
-	: _cp(&var)
+Var * Var::Ref::get()
 {
+	auto staff = [t=this->_tbl->t, &k=this->_key]() -> Var* {
+		auto it = t->find(k);
+		return it != t->end() ? &it->second : 0;
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	if (*_tbl)
+		return staff();
+	throw TypeError(_tbl->type, __FUNCTION__);
 }
 
-Var::Ref Var::Ref::operator=(Var & v)const
+Var & Var::Ref::operator=(Ref && rhs)
 {
-	if (_cp != &v) {
-		_cp->~Var();
-		new(_cp)Var(std::move(v));
+	auto staff = [this, &rhs]() -> Var& {
+		auto p = rhs.get();
+		return *this = p ? *p : nil;
+	};
+	if (rhs._tbl->strong)
+		return staff();
+	lockGuard(lg);
+	if (*rhs._tbl)
+		return staff();
+	throw TypeError(rhs._tbl->type, __FUNCTION__);
+}
+
+Var & Var::Ref::operator=(Var const & v)
+{
+	if (nil == _key)
+		return _key;
+
+	auto & t = *_tbl->t;
+	if (_tbl->strong)
+		return t[std::move(_key)] = v;
+	lockGuard(lg);
+	if (*_tbl)
+		return t[std::move(_key)] = v;
+	throw TypeError(_tbl->type, __FUNCTION__);
+}
+
+Var & Var::Ref::operator=(Var && v)
+{
+	if (nil == _key)
+		return _key;
+
+	auto & t = *_tbl->t;
+	if (_tbl->strong)
+		return t[std::move(_key)] = std::move(v);
+	lockGuard(lg);
+	if (*_tbl)
+		return t[std::move(_key)] = std::move(v);
+	throw TypeError(_tbl->type, __FUNCTION__);
+}
+
+Var::Ref::operator Var &()
+{
+	if (nil == _key)
+		return _key;
+
+	auto & t = *_tbl->t;
+	if (_tbl->strong)
+		return t[std::move(_key)];
+	lockGuard(lg);
+	if (*_tbl)
+		return t[std::move(_key)];
+	throw TypeError(_tbl->type, __FUNCTION__);
+}
+
+void Var::Ref::swap(Ref && rhs)
+{
+	auto staff = [this, &rhs] {
+		if (auto p = this->get())
+			p->swap(rhs);
+		else if (auto p = rhs.get())
+			p->swap(*this);
+	};
+	if (_tbl->strong && rhs._tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+void Var::Ref::swap(Var & rhs)
+{
+	if (_tbl->strong)
+		return rhs.swap(*this);
+	lockGuard(lg);
+	if (*_tbl)
+		return rhs.swap(*this);
+	throw TypeError(_tbl->type, __FUNCTION__);
+}
+
+Var::Ref::operator bool()
+{
+	auto staff = [this] {
+		auto p = this->get();
+		return p && *p;
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+Var Var::Ref::operator-()
+{
+	auto staff = [this] {
+		auto p = this->get();
+		return p ? -*p : -nil;
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+Var Var::Ref::operator()(Var const & args)
+{
+	auto staff = [this, &args] {
+		auto p = this->get();
+		return p ? (*p)(args) : nil(args);
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+Var Var::Ref::operator()(Var && args)
+{
+	auto staff = [this, &args] {
+		auto p = this->get();
+		return p ? (*p)(std::move(args)) : nil(std::move(args));
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+Var::Ref Var::Ref::operator[](Var const & k)
+{
+	if (_tbl->strong) {
+		auto p = get();
+		return Ref(p ? (*p)[k] : nil[k]);
 	}
-	return *this;
+	lockGuard(lg);
+	auto p = get();
+	return Ref(p ? (*p)[k] : nil[k]);
 }
 
-Var::Ref Var::Ref::operator=(Var && v)const
+Var::Ref Var::Ref::operator[](Var && k)
 {
-	return Ref(*_cp = v);
+	if (_tbl->strong) {
+		auto p = get();
+		return Ref(p ? (*p)[std::move(k)] : nil[std::move(k)]);
+	}
+	lockGuard(lg);
+	auto p = get();
+	return Ref(p ? (*p)[std::move(k)] : nil[std::move(k)]);
 }
 
-Var::Ref Var::Ref::operator=(Var const & v)const
+auto Var::Ref::begin() -> table_t::iterator
 {
-	return v.weak ? operator=((Var&)v) : Ref(*_cp = v);
+	auto staff = [this] {
+		auto p = this->get();
+		return p ? p->begin() : nil.begin();
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+auto Var::Ref::end() -> table_t::iterator
+{
+	auto staff = [this] {
+		auto p = this->get();
+		return p ? p->end() : nil.end();
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+auto Var::Ref::cbegin() -> table_t::const_iterator
+{
+	auto staff = [this] {
+		auto p = this->get();
+		return p ? p->cbegin() : nil.cbegin();
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+auto Var::Ref::cend() -> table_t::const_iterator
+{
+	auto staff = [this] {
+		auto p = this->get();
+		return p ? p->cend() : nil.cend();
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+bool Var::Ref::setWeak(bool w)
+{
+	auto staff = [this, w] {
+		auto p = this->get();
+		return p ? p->setWeak(w) : nil.setWeak(w);
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+bool Var::Ref::setKeyWeak(Var const & k, bool w)
+{
+	auto staff = [this, &k, w] {
+		auto p = this->get();
+		return p ? p->setKeyWeak(k, w) : nil.setKeyWeak(k, w);
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
+}
+
+bool Var::Ref::setKeyWeak(Var && k, bool w)
+{
+	auto staff = [this, &k, w] {
+		auto p = this->get();
+		return p ? p->setKeyWeak(std::move(k), w) : nil.setKeyWeak(std::move(k), w);
+	};
+	if (_tbl->strong)
+		return staff();
+	lockGuard(lg);
+	return staff();
 }
 
 
-Var::Ite::Ite(base && rr)
-	: base(std::move(rr))
+bool operator==(Var const & lhs, Var const & rhs)
 {
-}
-
-
-bool operator==(Var lhs, Var rhs)
-{
-	if (lhs.type != rhs.type) {
+	!lhs, !rhs;
+	if (lhs.type != rhs.type)
 		return false;
-	}
+
 	switch (rhs.type) {
-		default:
+		case Var::Type::nil:
 			return true;
 		case Var::Type::boolean:
 			return lhs.b == rhs.b;
@@ -399,31 +599,29 @@ bool operator==(Var lhs, Var rhs)
 			return lhs.n == rhs.n;
 		case Var::Type::string:
 			return lhs.s == rhs.s || *lhs.s == *rhs.s;
-		case Var::Type::function:
-			return lhs.f == rhs.f;
-		case Var::Type::table:
+		default:
 			return lhs.t == rhs.t;
 	}
 }
 
-ostream & operator<<(ostream & os, Var rhs)
+ostream & operator<<(ostream & os, Var const & rhs)
 {
 	Var s = toString(rhs);
 	switch (rhs.type) {
+		default:
+			return os << toCString(s);
 		case Var::Type::string:
 			return os << '\"' << toCString(s) << '\"';
 		case Var::Type::table:
 			return os << '{' << toCString(s) << '}';
-		default:
-			return os << toCString(s);
 	}
 }
 
-bool operator<(Var lhs, Var rhs)
+bool operator<(Var const & lhs, Var const & rhs)
 {
-	if (lhs.type != rhs.type) {
+	if (lhs.type != rhs.type)
 		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
-	}
+
 	switch (rhs.type) {
 		case Var::Type::number:
 			return lhs.n < rhs.n;
@@ -434,11 +632,11 @@ bool operator<(Var lhs, Var rhs)
 	}
 }
 
-bool operator>(Var lhs, Var rhs)
+bool operator>(Var const & lhs, Var const & rhs)
 {
-	if (lhs.type != rhs.type) {
+	if (lhs.type != rhs.type)
 		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
-	}
+
 	switch (rhs.type) {
 		case Var::Type::number:
 			return lhs.n > rhs.n;
@@ -449,11 +647,11 @@ bool operator>(Var lhs, Var rhs)
 	}
 }
 
-Var operator+(Var lhs, Var rhs)
+Var operator+(Var const & lhs, Var const & rhs)
 {
-	if (lhs.type != rhs.type) {
+	if (lhs.type != rhs.type)
 		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
-	}
+
 	switch (rhs.type) {
 		case Var::Type::number:
 			return lhs.n + rhs.n;
@@ -464,91 +662,99 @@ Var operator+(Var lhs, Var rhs)
 	}
 }
 
-Var operator-(Var lhs, Var rhs)
+Var operator-(Var const & lhs, Var const & rhs)
 {
-	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type) {
+	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type)
 		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
-	}
 	return lhs.n - rhs.n;
 }
 
-Var operator*(Var lhs, Var rhs)
+Var operator*(Var const & lhs, Var const & rhs)
 {
-	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type) {
+	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type)
 		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
-	}
 	return lhs.n * rhs.n;
 }
 
-Var operator/(Var lhs, Var rhs)
+Var operator/(Var const & lhs, Var const & rhs)
 {
-	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type) {
+	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type)
 		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
-	}
 	return lhs.n / rhs.n;
 }
 
-Var operator%(Var lhs, Var rhs)
+Var operator%(Var const & lhs, Var const & rhs)
 {
-	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type) {
+	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type)
 		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
-	}
 	return fmod(lhs.n, rhs.n);
 }
 
-Var operator^(Var lhs, Var rhs)
+Var operator^(Var const & lhs, Var const & rhs)
 {
-	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type) {
+	if (Var::Type::number != lhs.type || Var::Type::number != rhs.type)
 		throw Var::TypeError(lhs.type, rhs.type, __FUNCTION__);
-	}
 	return pow(lhs.n, rhs.n);
 }
 
-Var toNumber(Var var)
+Var toNumber(Var const & var)
 {
+	!var;
 	switch (var.type) {
+		default:
+			return nullptr;
 		case Var::Type::number:
 			return var;
 		case Var::Type::string:
 			return atof(var.s->c_str());
-		default:
-			return nullptr;
 	}
 }
 
-Var toString(Var var)
+Var toString(Var const & var)
 {
-	char s[20] = "";
+	!var;
+	char s[24] = "";
 	switch (var.type) {
 		case Var::Type::nil:
 			return type(var);
 		case Var::Type::boolean:
 			return var.b ? "true" : "false";
 		case Var::Type::number:
-			return to_string(var.n);//sprintf(s, "%g", var.n);
+			sprintf(s, "%g", var.n);
+			return s;
 		case Var::Type::string:
 			return var;
 		default:
-			sprintf(s, "0x%p", var.f);
+			sprintf(s, "0x%p", var.t);
 			return s;
 	}
 }
 
-char const * toCString(Var var)
+char const * toCString(Var const & var)
 {
-	if (Var::Type::string != var.type) {
+	if (Var::Type::string != var.type)
 		throw Var::TypeError(var.type, __FUNCTION__);
-	}
 	return var.s->c_str();
+}
+
+ostream & printTable(Var const & var, ostream & os)
+{
+	if (Var::Type::table != var.type)
+		throw Var::TypeError(var.type, __FUNCTION__);
+	os << "{\n";
+	for (auto & pair : var)
+		os << "\t[" << pair.first << "] = " << pair.second << '\n';
+	os << "}\n";
+	return os;
 }
 
 
 Var::TypeError::TypeError(Type type, string const & func)
-	: runtime_error("Call "+func+" with a "+typeName(type))
+	: runtime_error("Call "+func+" with a "+TypeName(type))
 {
 }
 
 Var::TypeError::TypeError(Type lhs, Type rhs, string const & func)
-	: runtime_error("Call "+func+" with "+typeName(lhs)+" and "+typeName(rhs))
+	: runtime_error("Call "+func+" with "+TypeName(lhs)+" & "+TypeName(rhs))
 {
 }

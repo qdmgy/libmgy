@@ -7,8 +7,8 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
-
 struct Var;
+
 
 namespace std
 {
@@ -17,9 +17,8 @@ namespace std
 	{
 		using argument_type = Var;
 		using result_type = size_t;
-		size_t operator()(Var const &)const;
+		size_t operator()(Var const &)const noexcept;
 	};
-	void swap(Var &, Var &);
 }
 
 
@@ -29,7 +28,7 @@ struct Var
 	enum class Type : char {
 		nil, boolean, number, string, function, table
 	};
-	static std::string typeName(Type);
+	static std::string TypeName(Type) noexcept;
 
 	using nil_t		= decltype(nullptr);
 	using bool_t	= bool;
@@ -38,11 +37,10 @@ struct Var
 	using function_t= const std::function<Var(Var)>;
 	using table_t	= std::unordered_map<Var, Var>;
 	class	Ref;
-	class	Ite;
 	struct	TypeError;
 
 	//管理员：引用计数
-	static std::unordered_map<const void*, int> mrc;
+	static std::unordered_map<void const*, int> mrc;
 	static std::recursive_mutex mrcm;
 	static const Var nil;
 
@@ -52,18 +50,18 @@ struct Var
 		number_t	n;
 		string_t	*s;
 		function_t	*f;
-		table_t		*t;
+		table_t		*t	= 0;
 	};
 	mutable Type type	= Type::nil;
 	mutable bool strong	= false;
 
 	//构造
-	Var() = default;
-	Var(nil_t);
-	Var(bool_t);
-	Var(int);
-	Var(unsigned);
-	Var(number_t);
+	constexpr Var() noexcept					{}
+	constexpr Var(nil_t) noexcept				{}
+	constexpr Var(bool_t val) noexcept			: b(val), type(Type::boolean) {}
+	constexpr Var(number_t val) noexcept		: n(val), type(Type::number) {}
+	constexpr Var(int val) noexcept				: n(val), type(Type::number) {}
+	constexpr Var(unsigned val) noexcept		: n(val), type(Type::number) {}
 	Var(char const *);
 	Var(std::string&&);
 	Var(std::string const &);
@@ -72,21 +70,23 @@ struct Var
 	Var(std::initializer_list<Var>);
 
 	//Special Member Function
-	~Var();
-	Var(Var&&);
+	~Var() noexcept;
 	Var(Var const &);
-	Var & operator=(Var&&);
 	Var & operator=(Var const &);
+	Var(Var&&) noexcept;
+	Var & operator=(Var && rhs) noexcept		{ swap(rhs); return *this; }
 
 	//全类型
-	explicit operator bool()const;
-	bool operator!()const					{ return !(bool)*this; }
+	void swap(Var &) noexcept;
+	explicit operator bool()const noexcept;
+	bool operator!()const noexcept				{ return !(bool)*this; }
 
 	//数字
 	Var operator-()const;
 
 	//函数
-	Var operator()(Var)const;
+	Var operator()(Var const &)const;
+	Var operator()(Var&&)const;
 
 	//表
 	Ref operator[](Var)const;
@@ -96,77 +96,77 @@ struct Var
 	table_t::const_iterator cend()const;
 
 	//强弱转换
-	void setWeak(bool val = true)const;
-	void setKeyWeak(Var, bool val = true)const;
+	bool setWeak(bool weak = true)const;
+	bool setKeyWeak(Var, bool weak = true)const;
 };
 
 class Var::Ref
 {
-	table_t	*_tbl;
-	Var		_key;
-	bool	_strong;
-	Var & get()const;
-public:
-	Ref(table_t *, bool, Var&&);
-	Ref(Ref&&);
-	Ref(Ref const &) = delete;
-	Ref & operator=(Ref&&) = delete;
-	Ref & operator=(Ref const &) = delete;
-	Var & operator=(Var const &)const;
-// 	operator Var &()const							{ return get(); }
-// 	void setWeak(bool w)const						{ return get().setWeak(w); }
-// 	void setKeyWeak(Var const & k, bool w)const		{ return get().setKeyWeak(k, w); }
-// 	bool operator!()const							{ return !get(); }
-// 	explicit operator bool()const					{ return (bool)get(); }
-// 	Var operator-()const								{ return -get(); }
-// 	Var operator()(Var const & v)const				{ return get()(v); }
-// 	Ref operator[](Var const & k)const				{ return get()[k]; }
-// 	Ite begin()const;
-// 	Ite end()const;
-};
+	Var _key;
+	Var const * _tbl;
 
-class Var::Ite
-	: public table_t::iterator
-{
-	table_t	*_tbl;
-	bool	_strong;
+	friend Var;
+	Ref(Var && k, Var const * t) noexcept			: _key(std::move(k)), _tbl(t) {}
+	Ref(Ref&&) noexcept								= default;
+	Var * get();
+
 public:
-	using base = std::unordered_map<Var, Var>::iterator;
-	Ite(base&&, table_t);
-	Var k()const									{ return (*this)->first; }
-	Var::Ref v()const										{ return{_tbl, _strong, k()}; }
-	std::pair<Var const, Var::Ref> operator*()const		{ return {k(), v()}; }
+	Ref(Ref const &)								= delete;
+	Ref & operator=(Ref const &)					= delete;
+
+	Var & operator=(Ref && rhs);
+	Var & operator=(Var const &);
+	Var & operator=(Var&&);
+	operator Var &();
+
+	void swap(Ref && rhs);
+	void swap(Var & rhs);
+	explicit operator bool();
+	bool operator!()								{ return !(bool)*this; }
+
+	Var operator-();
+	Var operator()(Var const &);
+	Var operator()(Var&&);
+	Ref operator[](Var const &);
+	Ref operator[](Var&&);
+	table_t::iterator begin();
+	table_t::iterator end();
+	table_t::const_iterator cbegin();
+	table_t::const_iterator cend();
+	bool setWeak(bool);
+	bool setKeyWeak(Var const &, bool);
+	bool setKeyWeak(Var&&, bool);
 };
 
 //全类型
-bool operator==(Var, Var);
-inline bool operator!=(Var lhs, Var rhs)				{ return !(lhs == rhs); }
-std::ostream & operator<<(std::ostream &, Var);
-inline std::string type(Var var)						{ return Var::typeName(var.type); }
+bool operator==(Var const &, Var const &);
+inline bool operator!=(Var const & lhs, Var const & rhs)	{ return !(lhs == rhs); }
+std::ostream & operator<<(std::ostream &, Var const &);
+inline std::string type(Var const & var)					{ !var; return Var::TypeName(var.type); }
 
 //数字、字符串
-bool operator<(Var, Var);
-bool operator>(Var, Var);
-inline bool operator>=(Var lhs, Var rhs)		{ return !(lhs < rhs); }
-inline bool operator<=(Var lhs, Var rhs)		{ return !(lhs > rhs); }
-Var operator+(Var, Var);
+bool operator<(Var const &, Var const &);
+bool operator>(Var const &, Var const &);
+inline bool operator>=(Var const & lhs, Var const & rhs)	{ return !(lhs < rhs); }
+inline bool operator<=(Var const & lhs, Var const & rhs)	{ return !(lhs > rhs); }
+Var operator+(Var const &, Var const &);
 
 //数字
-Var operator-(Var, Var);
-Var operator*(Var, Var);
-Var operator/(Var, Var);
-Var operator%(Var, Var);
-Var operator^(Var, Var);
-Var toNumber(Var);
+Var operator-(Var const &, Var const &);
+Var operator*(Var const &, Var const &);
+Var operator/(Var const &, Var const &);
+Var operator%(Var const &, Var const &);
+Var operator^(Var const &, Var const &);
+Var toNumber(Var const &);
 template<typename Ty>
-Ty toNumber(Var);
+Ty toNumber(Var const &);
 
 //字符串
-Var toString(Var);
-char const * toCString(Var);
+Var toString(Var const &);
+char const * toCString(Var const &);
 
 //表
-std::ostream & printTable(Var, std::ostream & os = std::cout);
+std::ostream & printTable(Var const &, std::ostream & rtn = std::cout);
 
 
 //-------------------------------Implementation---------------------------------
@@ -178,27 +178,13 @@ struct Var::TypeError : std::runtime_error
 };
 
 
-Var Var::function(function_t& fn)
-{
-	Var rtn;
-	rtn.f = new std::function<Var(Var)>(fn);
-	if (*rtn.f) {
-		rtn.type = Type::function;
-	} 
-	else {
-		delete rtn.f;
-	}
-	return rtn;
-}
-
-
 template<typename Ty>
-Ty toNumber(Var var)
+Ty toNumber(Var const & var)
 {
 	Var n = toNumber(var);
-	if (!n)
-		throw Var::TypeError(var.type, __FUNCTION__);
-	return (Ty)n.n;
+	if (n)
+		return (Ty)n.n;
+	throw Var::TypeError(var.type, __FUNCTION__);
 }
 
 
